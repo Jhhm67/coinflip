@@ -1,0 +1,108 @@
+import random
+import telebot
+
+# Token del bot proporcionado por el BotFather
+TOKEN = '6082069597:AAGy1SaUHVOEjV5HqxREMQqiBk4uWRXQBQw'
+
+# Diccionario para almacenar el saldo de los jugadores
+saldo_jugadores = {}
+
+# Lista de IDs de los administradores autorizados
+administradores = [895366540, 5239354695]  # Reemplaza con los IDs de los administradores permitidos
+
+# Crear una instancia del bot
+bot = telebot.TeleBot(TOKEN)
+
+# Verificar si el remitente del mensaje es un administrador del grupo
+def es_admin(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    member = bot.get_chat_member(chat_id, user_id)
+    return user_id in administradores and (member.status == "administrator" or member.status == "creator")
+
+# Manejador del comando /start
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "¡Bienvenido al juego Coin Flip! Para lanzar una moneda, usa el comando /flip <apuesta>.")
+
+# Manejador del comando /flip
+@bot.message_handler(commands=['flip'])
+def flip_coin(message):
+    jugador = message.from_user.id
+    if jugador in saldo_jugadores:
+        texto_apuesta = message.text.replace('/flip', '').strip()
+        apuesta = texto_apuesta.split(' ')[0]
+        if apuesta not in ['cara', 'sello']:
+            bot.reply_to(message, "La apuesta debe ser 'cara' o 'sello'. Utiliza el comando /flip <apuesta>.")
+            return
+        try:
+            monto_apuesta = int(texto_apuesta.split(' ')[1])
+            if saldo_jugadores[jugador] >= monto_apuesta:
+                coin = random.choice(['cara', 'sello'])
+                resultado = "Has ganado" if coin == apuesta else "Has perdido"
+                if resultado == "Has ganado":
+                    monto_ganado = monto_apuesta * 1  # El monto ganado es el doble de la apuesta
+                    saldo_jugadores[jugador] += monto_ganado
+                    comision = int(monto_ganado * 0.10)  # Calcular el 5% de la apuesta ganada
+                    saldo_jugadores[jugador] -= comision
+                    bot.reply_to(message, f"Has lanzado la moneda y ha salido: {coin}.\n{resultado}.\nApuesta: {monto_apuesta}.\nMonto ganado: {monto_ganado}.\nComisión (5%): {comision}.\nSaldo actual: {saldo_jugadores[jugador]}.")
+                else:
+                    saldo_jugadores[jugador] -= monto_apuesta
+                    bot.reply_to(message, f"Has lanzado la moneda y ha salido: {coin}.\n{resultado}.\nApuesta: {monto_apuesta}.\nSaldo actual: {saldo_jugadores[jugador]}.")
+            else:
+                bot.reply_to(message, "No tienes suficiente saldo para realizar esa apuesta.")
+        except ValueError:
+            bot.reply_to(message, "El formato de apuesta es incorrecto. Por favor, utiliza el comando /flip <apuesta> <monto_apuesta>.")
+    else:
+        bot.reply_to(message, "No tienes suficiente saldo para apostar. Utiliza el comando /depositar para añadir dinero a tu cuenta.")
+
+# Manejador del comando /depositar
+@bot.message_handler(commands=['depositar'])
+def depositar(message):
+    if es_admin(message):
+        try:
+            _, monto, usuario_id = message.text.split()
+            monto = int(monto)
+            usuario_id = int(usuario_id)
+            saldo_jugadores.setdefault(usuario_id, 0)
+            saldo_jugadores[usuario_id] += monto
+            bot.reply_to(message, f"Se han depositado {monto} en la cuenta del jugador con ID {usuario_id}. Saldo actual: {saldo_jugadores[usuario_id]}.")
+        except ValueError:
+            bot.reply_to(message, "Uso incorrecto del comando. Por favor, utiliza el formato /depositar <monto> <usuario_id>.")
+    else:
+        bot.reply_to(message, "Lo siento, solo los administradores autorizados pueden utilizar este comando.")
+
+# Manejador del comando /quitar
+@bot.message_handler(commands=['quitar'])
+def quitar_jugador(message):
+    if es_admin(message):
+        try:
+            _, usuario_id = message.text.split()
+            usuario_id = int(usuario_id)
+            if usuario_id in saldo_jugadores:
+                del saldo_jugadores[usuario_id]
+                bot.reply_to(message, f"El jugador con ID {usuario_id} ha sido eliminado.")
+            else:
+                bot.reply_to(message, f"No se encontró al jugador con ID {usuario_id}.")
+        except ValueError:
+            bot.reply_to(message, "Uso incorrecto del comando. Por favor, utiliza el formato /quitar <usuario_id>.")
+    else:
+        bot.reply_to(message, "Lo siento, solo los administradores autorizados pueden utilizar este comando.")
+
+# Manejador del comando /saldo
+@bot.message_handler(commands=['saldo'])
+def consultar_saldo(message):
+    jugador = message.from_user.id
+    if jugador in saldo_jugadores:
+        saldo_actual = saldo_jugadores[jugador]
+        bot.reply_to(message, f"Tu saldo actual es: {saldo_actual}.")
+    else:
+        bot.reply_to(message, "No tienes un saldo registrado. Utiliza el comando /depositar para añadir dinero a tu cuenta.")
+
+# Manejador de mensajes no reconocidos
+@bot.message_handler(func=lambda message: True)
+def echo_all(message):
+    bot.reply_to(message, "Lo siento, no entiendo ese comando. Prueba con /start para comenzar el juego.")
+
+# Iniciar el bot
+bot.polling()
